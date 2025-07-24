@@ -12,6 +12,8 @@ from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import aiohttp
 from dotenv import load_dotenv
+import sys
+print("Python version:", sys.version)
 
 # === CARICA CONFIG ===
 load_dotenv()
