@@ -6,11 +6,36 @@ from telegram.ext import ContextTypes
 # Importa la funzione dallo scheduler
 from scheduler import invia_messaggio_programmato
 
-# Carica l'ID dell'amministratore per i controlli di sicurezza
-try:
-    ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
-except (ValueError, TypeError):
-    ADMIN_USER_ID = None # Se l'ID non è un numero valido o non è impostato
+# --- Configurazione Logging ---
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# --- Carica gli ID degli amministratori per i controlli di sicurezza ---
+# Inizializza una lista vuota per gli ID degli amministratori
+ADMIN_IDS = []
+
+admin_ids_str = os.getenv("ADMIN_IDS") # Il nome della variabile d'ambiente su Render
+if admin_ids_str:
+    try:
+        # Divide la stringa per virgola e converte ogni parte in un intero
+        # .strip() rimuove eventuali spazi bianchi attorno agli ID
+        ADMIN_IDS = [int(aid.strip()) for aid in admin_ids_str.split(',')]
+        logger.info(f"Caricati ID amministratori: {ADMIN_IDS}")
+    except ValueError:
+        logger.error(f"Errore nella conversione degli ADMIN_IDS: '{admin_ids_str}'. Assicurati che siano numeri interi separati da virgole.")
+        ADMIN_IDS = [] # In caso di errore, la lista rimane vuota per sicurezza
+else:
+    logger.warning("Variabile d'ambiente ADMIN_IDS non impostata. Nessun amministratore configurato.")
+
+
+# --- Funzione di Utilità per Verificare l'Amministratore ---
+def is_admin(user_id: int) -> bool:
+    """Controlla se l'ID dell'utente è nella lista degli amministratori."""
+    return user_id in ADMIN_IDS
+
+# inizializzo i comandi 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Risponde al comando /start con un messaggio di benvenuto."""
