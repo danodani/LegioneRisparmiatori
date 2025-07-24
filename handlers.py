@@ -39,13 +39,13 @@ def is_admin(user_id: int) -> bool:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Risponde al comando /start con un messaggio di benvenuto."""
-    user = update.effective_user
+    user_id = update.effective_user
     await update.message.reply_html(
         f"Ciao {user.mention_html()}! 👋\n\n"
         "Benvenuto nel bot de La Legione dei Risparmiatori. "
         "Il bot è attualmente in funzione"
     )
-#logger.info(f"Comando /start ricevuto dall'admin {user_id}")
+logger.info(f"Comando /start ricevuto dall'admin {user_id}")
 
 async def test_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Invia un messaggio di test al canale (solo per admin)."""
