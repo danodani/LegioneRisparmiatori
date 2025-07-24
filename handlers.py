@@ -35,7 +35,7 @@ def is_admin(user_id: int) -> bool:
     """Controlla se l'ID dell'utente è nella lista degli amministratori."""
     return user_id in ADMIN_IDS
 
-# inizializzo i comandi 
+# inizializzo le funzioni dei comandi 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Risponde al comando /start con un messaggio di benvenuto."""
@@ -45,7 +45,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Benvenuto nel bot de La Legione dei Risparmiatori. "
         "Il bot è attualmente in funzione"
     )
-logger.info(f"Comando /start ricevuto dall'admin {user_id}")
 
 async def test_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Invia un messaggio di test al canale (solo per admin)."""
