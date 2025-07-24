@@ -39,7 +39,7 @@ def is_admin(user_id: int) -> bool:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Risponde al comando /start con un messaggio di benvenuto."""
-    user_id = update.effective_user
+    user_id = update.effective_user.id
     await update.message.reply_html(
         f"Ciao {user.mention_html()}! 👋\n\n"
         "Benvenuto nel bot de La Legione dei Risparmiatori. "
@@ -49,7 +49,7 @@ logger.info(f"Comando /start ricevuto dall'admin {user_id}")
 
 async def test_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Invia un messaggio di test al canale (solo per admin)."""
-    user_id = update.effective_user.id
+    user_id = update.effective_user
     
     # Usa la funzione is_admin per il controllo dei permessi
     if not is_admin(user_id):
