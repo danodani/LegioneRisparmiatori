@@ -14,6 +14,7 @@ import aiohttp
 from dotenv import load_dotenv
 import sys
 print("Python version:", sys.version)
+print("Contenuto della directory:", os.listdir("."))
 
 # === CARICA CONFIG ===
 load_dotenv()
