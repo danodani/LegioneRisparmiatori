@@ -1,42 +1,62 @@
 import os
 import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from dotenv import load_dotenv
 
-# Abilita il logging per avere output dettagliato
+from telegram.ext import ApplicationBuilder, CommandHandler
+
+# Importa i gestori dei comandi (nessuna modifica qui)
+from handlers import start, test_channel, forza_invio
+from database import init_db
+
+# Configura il logging
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
-logger = logging.getLogger(__name__)
-
-# --- Funzioni Handler di Esempio (per verificare che gli handler funzionino) ---
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Invia un messaggio di benvenuto quando il comando /start è ricevuto."""
-    await update.message.reply_text('Ciao! Sono il tuo bot. Sono attivo e in ascolto.')
-
-
-
-
-# --- Funzione principale del bot ---
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def main() -> None:
-    """Avvia il bot in modalità polling."""
-    BOT_TOKEN = os.environ.get("BOT_TOKEN")
-    if not BOT_TOKEN:
-        logger.error("Errore: La variabile d'ambiente BOT_TOKEN non è impostata.")
-        exit(1) # Termina il bot se il token non è presente
+    """Avvia il bot in modalità webhook per il deploy su Render."""
+    # Carica le variabili d'ambiente (utile per lo sviluppo locale)
+    load_dotenv()
+    
+    # Prendi il token del bot
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        logging.critical("BOT_TOKEN non trovato!")
+        return
+        
+    # Inizializza il database
+    init_db()
 
-    # Costruisci l'applicazione
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Crea l'applicazione del bot
+    application = ApplicationBuilder().token(token).build()
 
-    # Registra gli handler di esempio
-    # Se questi funzionano, sai che la base per aggiungere le tue funzionalità è solida.
+    # Aggiunge gli handler per i comandi (nessuna modifica qui)
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("test", test_channel))
+    application.add_handler(CommandHandler("forza_invio", forza_invio))
 
-    # Avvia il bot
-    logger.info("Bot avviato e in ascolto in modalità polling...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # --- Configurazione Webhook per Render ---
+    # Render imposta la porta dinamicamente tramite la variabile PORT
+    port = int(os.getenv("PORT", 8443))
+    # Render fornisce l'URL pubblico del servizio tramite RENDER_EXTERNAL_URL
+    webhook_url = os.getenv("RENDER_EXTERNAL_URL")
+    
+    if webhook_url:
+        # Avvia il bot in modalità webhook
+        logging.info(f"Avvio in modalità Webhook su porta {port}")
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path=token,  # Usa il token come parte "segreta" dell'URL
+            webhook_url=f"{webhook_url}/{token}"
+        )
+    else:
+        # Se non siamo su Render, avvia in modalità polling per test locali
+        logging.info("Avvio in modalità Polling per sviluppo locale")
+        application.run_polling()
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()
