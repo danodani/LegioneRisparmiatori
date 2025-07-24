@@ -18,7 +18,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_html(
         f"Ciao {user.mention_html()}! 👋\n\n"
         "Benvenuto nel bot de La Legione dei Risparmiatori. "
-        "Usa /help per scoprire i comandi disponibili."
+        "Il bot è attualmente in funzione"
     )
 
 async def test_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
