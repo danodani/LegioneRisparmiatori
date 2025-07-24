@@ -45,40 +45,56 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Benvenuto nel bot de La Legione dei Risparmiatori. "
         "Il bot è attualmente in funzione"
     )
+logger.info(f"Comando /start ricevuto da {user.id}")
 
 async def test_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Invia un messaggio di test al canale (solo per admin)."""
     user_id = update.effective_user.id
     
-    if user_id != ADMIN_USER_ID:
+    # Usa la funzione is_admin per il controllo dei permessi
+    if not is_admin(user_id):
         await update.message.reply_text("❌ Non hai i permessi per eseguire questo comando.")
+        logger.warning(f"Tentativo di accesso non autorizzato al comando /test da parte dell'utente {user_id}")
         return
 
     channel_id = os.getenv("CHANNEL_ID")
+    if not channel_id:
+        await update.message.reply_text("Errore: CHANNEL_ID non configurato.")
+        logger.error("Errore: CHANNEL_ID non trovato tra le variabili d'ambiente.")
+        return
+
     try:
         await context.bot.send_message(
             chat_id=channel_id,
             text="✅ Messaggio di test inviato correttamente dal bot."
         )
         await update.message.reply_text("Messaggio di test inviato al canale!")
-        logging.info(f"Test inviato al canale {channel_id} dall'admin {user_id}")
+        logger.info(f"Test inviato al canale {channel_id} dall'admin {user_id}")
     except Exception as e:
         await update.message.reply_text(f"Errore durante l'invio del test: {e}")
-        logging.error(f"Errore nel comando /test: {e}")
+        logger.error(f"Errore nel comando /test: {e}", exc_info=True) # exc_info=True per stampare il traceback
 
 async def forza_invio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Forza l'invio del messaggio programmato (solo per admin)."""
     user_id = update.effective_user.id
 
-    if user_id != ADMIN_USER_ID:
+    # Usa la funzione is_admin per il controllo dei permessi
+    if not is_admin(user_id):
         await update.message.reply_text("❌ Non hai i permessi per eseguire questo comando.")
+        logger.warning(f"Tentativo di accesso non autorizzato al comando /forza_invio da parte dell'utente {user_id}")
         return
     
     await update.message.reply_text("Avvio l'invio manuale del messaggio programmato...")
+    logger.info(f"Comando /forza_invio ricevuto da admin {user_id}. Avvio invio manuale.")
     
-    successo = await invia_messaggio_programmato(context)
+    # La funzione invia_messaggio_programmato deve gestire al suo interno
+    # il recupero dell'ID del canale o riceverlo come parametro.
+    # In questo caso, la sto chiamando senza argomenti, assumendo che recuperi l'ID al suo interno.
+    successo = await invia_messaggio_programmato(context) # La tua funzione scheduler deve accettare 'context'
 
     if successo:
         await update.message.reply_text("✅ Invio manuale completato con successo!")
+        logger.info(f"Invio manuale del messaggio programmato completato da admin {user_id}.")
     else:
         await update.message.reply_text("⚠️ Si è verificato un errore durante l'invio. Controlla i log.")
+        logger.error(f"Errore nell'invio manuale del messaggio programmato da admin {user_id}.", exc_info=True)
