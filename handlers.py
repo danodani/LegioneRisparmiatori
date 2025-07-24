@@ -45,6 +45,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Benvenuto nel bot de La Legione dei Risparmiatori. "
         "Il bot è attualmente in funzione"
     )
+    logger.info(f"Comando /start ricevuto da admin {user_id}.")
 
 async def test_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Invia un messaggio di test al canale (solo per admin)."""
