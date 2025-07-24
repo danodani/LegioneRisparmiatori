@@ -1,4 +1,4 @@
-python-telegram-bot==21.0[webhooks]
+python-telegram-bot[webhooks]==21.0
 feedparser
 python-dotenv
 beautifulsoup4
