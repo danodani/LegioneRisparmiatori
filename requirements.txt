@@ -5,3 +5,11 @@ beautifulsoup4
 aiohttp
 APScheduler
 requests
+aiohttp
+APScheduler
+beautifulsoup4
+feedparser
+python-dotenv
+python-telegram-bot[webhooks]==21.0
+requests
+telegram
