@@ -12,4 +12,4 @@ feedparser
 python-dotenv
 python-telegram-bot[webhooks]==21.0
 requests
-telegram
+telegramutils.py

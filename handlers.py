@@ -1,199 +1,134 @@
-import os
-
-import logging
-
-from telegram import Update
-
-from telegram.ext import ContextTypes
+import re
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
+from urllib.parse import quote_plus
+from utils import get_amazon_product_details, AFFILIATE_TAG 
 
 
-
-# Importa la funzione dallo scheduler
-
-from scheduler import invia_messaggio_programmato
+# --- Funzioni di utilità per i calcoli ---
 
 
-
-# --- Configurazione Logging ---
-
-logging.basicConfig(
-
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-
-)
-
-logger = logging.getLogger(__name__)
+def calculate_discount(current, previous):
+    """Calcola la percentuale di sconto, restituisce 0 se non applicabile."""
+    if previous is None or previous <= current or current <= 0:
+        return 0
+    return round(((previous - current) / previous) * 100)
 
 
-
-# --- Carica gli ID degli amministratori per i controlli di sicurezza ---
-
-# Inizializza una lista vuota per gli ID degli amministratori
-
-ADMIN_IDS = []
-
-
-
-admin_ids_str = os.getenv("ADMIN_IDS") # Il nome della variabile d'ambiente su Render
-
-if admin_ids_str:
-
-    try:
-
-        # Divide la stringa per virgola e converte ogni parte in un intero
-
-        # .strip() rimuove eventuali spazi bianchi attorno agli ID
-
-        ADMIN_IDS = [int(aid.strip()) for aid in admin_ids_str.split(',')]
-
-        logger.info(f"Caricati ID amministratori: {ADMIN_IDS}")
-
-    except ValueError:
-
-        logger.error(f"Errore nella conversione degli ADMIN_IDS: '{admin_ids_str}'. Assicurati che siano numeri interi separati da virgole.")
-
-        ADMIN_IDS = [] # In caso di errore, la lista rimane vuota per sicurezza
-
-else:
-
-    logger.warning("Variabile d'ambiente ADMIN_IDS non impostata. Nessun amministratore configurato.")
-
-
-
-
-
-# --- Funzione di Utilità per Verificare l'Amministratore ---
-
-def is_admin(user_id: int) -> bool:
-
-    """Controlla se l'ID dell'utente è nella lista degli amministratori."""
-
-    return user_id in ADMIN_IDS
-
-
-
-# inizializzo i comandi 
-
+# --- Handlers dei Comandi di Base ---
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-
-    """Risponde al comando /start con un messaggio di benvenuto."""
-
-    user = update.effective_user
-
-    await update.message.reply_html(
-
-        f"Ciao {user.mention_html()}! 👋\n\n"
-
-        "Benvenuto nel bot de La Legione dei Risparmiatori. "
-
-        "Il bot è attualmente in funzione"
-
+    """Gestisce il comando /start."""
+    await update.message.reply_text(
+        "Ciao! Sono il Bot Legione Risparmiatori. Inviami un link Amazon e ti fornirò tutti i dettagli sull'offerta!"
     )
 
-#logger.info(f"Comando /start ricevuto dall'admin {user_id}")
+
+async def help_command(update: Update,
+                       context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gestisce il comando /help."""
+    await update.message.reply_text(
+        "Funzionalità:\n"
+        "- Invia un link Amazon per ricevere i dettagli dell'offerta, i prezzi e un link affiliato da condividere.\n"
+        "- I comandi di base sono /start e /help.")
 
 
+# --- Handler per Link Amazon (Nuova Funzionalità) ---
 
-async def test_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
-    """Invia un messaggio di test al canale (solo per admin)."""
+async def amazon_link_handler(update: Update,
+                              context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gestisce i messaggi che contengono un link Amazon per lo scraping e la formattazione."""
 
-    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    message_text = update.message.text
 
-    
+    # --- NUOVA LOGICA DI ESTRAZIONE ---
+    # Usiamo re.search per trovare il primo link Amazon nel testo
+    match = re.search(r'(https?://(?:amzn\.to|www\.amazon\.[a-z]{2,3})[^ \r\n]*)', message_text, re.IGNORECASE)
 
-    # Usa la funzione is_admin per il controllo dei permessi
-
-    if not is_admin(user_id):
-
-        await update.message.reply_text("❌ Non hai i permessi per eseguire questo comando.")
-
-        logger.warning(f"Tentativo di accesso non autorizzato al comando /test da parte dell'utente {user_id}")
-
+    if not match:
+        # Se non trova l'URL (non dovrebbe succedere se il filtro funziona)
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ Sembra mancare un link Amazon valido.")
         return
 
+    amazon_url = match.group(0) # Prende l'URL completo trovato
+    # --- FINE NUOVA LOGICA ---
 
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    await update.message.reply_text("🔎 Analizzo l'offerta Amazon, attendi...")
 
-    channel_id = os.getenv("CHANNEL_ID")
+    # 1. Recupera i dati del prodotto da utils.py
+    product_data = get_amazon_product_details(amazon_url)
 
-    if not channel_id:
-
-        await update.message.reply_text("Errore: CHANNEL_ID non configurato.")
-
-        logger.error("Errore: CHANNEL_ID non trovato tra le variabili d'ambiente.")
-
-        return
-
-
-
-    try:
-
+    if not product_data or not product_data.get("title"):
         await context.bot.send_message(
-
-            chat_id=channel_id,
-
-            text="✅ Messaggio di test inviato correttamente dal bot."
-
+            chat_id=chat_id,
+            text=
+            "⚠️ Non sono riuscito a trovare i dettagli del prodotto o il link non è valido."
         )
-
-        await update.message.reply_text("Messaggio di test inviato al canale!")
-
-        logger.info(f"Test inviato al canale {channel_id} dall'admin {user_id}")
-
-    except Exception as e:
-
-        await update.message.reply_text(f"Errore durante l'invio del test: {e}")
-
-        logger.error(f"Errore nel comando /test: {e}", exc_info=True) # exc_info=True per stampare il traceback
-
-
-
-async def forza_invio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-
-    """Forza l'invio del messaggio programmato (solo per admin)."""
-
-    user_id = update.effective_user.id
-
-
-
-    # Usa la funzione is_admin per il controllo dei permessi
-
-    if not is_admin(user_id):
-
-        await update.message.reply_text("❌ Non hai i permessi per eseguire questo comando.")
-
-        logger.warning(f"Tentativo di accesso non autorizzato al comando /forza_invio da parte dell'utente {user_id}")
-
         return
 
-    
+    # Calcola lo sconto
+    sconto_percent = calculate_discount(product_data["current_price"],
+                                        product_data["previous_price"])
 
-    await update.message.reply_text("Avvio l'invio manuale del messaggio programmato...")
+    # Formattazione del testo
+    prezzo_attuale = f"€ {product_data['current_price']:.2f}"
 
-    logger.info(f"Comando /forza_invio ricevuto da admin {user_id}. Avvio invio manuale.")
-
-    
-
-    # La funzione invia_messaggio_programmato deve gestire al suo interno
-
-    # il recupero dell'ID del canale o riceverlo come parametro.
-
-    # In questo caso, la sto chiamando senza argomenti, assumendo che recuperi l'ID al suo interno.
-
-    successo = await invia_messaggio_programmato(context) # La tua funzione scheduler deve accettare 'context'
-
-
-
-    if successo:
-
-        await update.message.reply_text("✅ Invio manuale completato con successo!")
-
-        logger.info(f"Invio manuale del messaggio programmato completato da admin {user_id}.")
-
+    if sconto_percent > 0:
+        prezzo_precedente = f"**Prezzo Precedente:** ~~€ {product_data['previous_price']:.2f}~~\n"
+        sconto_line = f" ({sconto_percent}%)"
     else:
+        prezzo_precedente = ""
+        sconto_line = ""
 
-        await update.message.reply_text("⚠️ Si è verificato un errore durante l'invio. Controlla i log.")
+    caption_text = (f"🎁 **{product_data['title']}**\n\n"
+                    f"🏷️ **Prezzo Attuale:** {prezzo_attuale}{sconto_line}\n"
+                    f"📈 {prezzo_precedente}"
+                    f"\n👉 Per l'offerta clicca qui")
 
-        logger.error(f"Errore nell'invio manuale del messaggio programmato da admin {user_id}.", exc_info=True)
+    # 2. Crea i bottoni inline
+
+    # Testo precompilato per la condivisione
+    share_text = quote_plus(
+        f"💥 Affare Trovato! {product_data['title']} a {prezzo_attuale}! Controlla subito: {product_data['product_link']}"
+    )
+    # Link di condivisione Telegram (che apre l'interfaccia di condivisione)
+    telegram_share_url = f"https://t.me/share/url?url={quote_plus(product_data['product_link'])}&text={share_text}"
+
+    # Bottoni
+    button_buy = InlineKeyboardButton(
+        text="🛒 Acquista subito",
+        url=product_data["product_link"]  # Link affiliato
+    )
+    button_share = InlineKeyboardButton(text="📲 Condividi Offerta",
+                                        url=telegram_share_url)
+
+    keyboard = InlineKeyboardMarkup([[button_buy], [button_share]])
+
+    # 3. Invia la foto e la caption (messaggio)
+    try:
+        await context.bot.send_photo(chat_id=chat_id,
+                                     photo=product_data["image_url"],
+                                     caption=caption_text,
+                                     parse_mode='Markdown',
+                                     reply_markup=keyboard)
+    except Exception as e:
+        # Fallback se la foto non è valida o manca
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=
+            f"Ecco l'offerta:\n{caption_text}\n\n⚠️ Impossibile caricare l'immagine.",
+            parse_mode='Markdown',
+            reply_markup=keyboard)
+
+
+# --- Dichiarazione degli Handlers per bot.py ---
+
+start_handler = CommandHandler("start", start)
+help_handler = CommandHandler("help", help_command)
+amazon_link_message_handler = MessageHandler(
+    filters.TEXT & ~filters.COMMAND & filters.Regex(r'(amzn\.to|amazon\.)'),
+    amazon_link_handler)
