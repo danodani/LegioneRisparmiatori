@@ -16,14 +16,14 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def main() -> None:
-    """Avvia il bot in modalità webhook per il deploy su Render."""
-    # Carica le variabili d'ambiente (utile per lo sviluppo locale)
+    """Avvia il bot in modalità polling per Replit."""
+    # Carica le variabili d'ambiente
     load_dotenv()
     
     # Prendi il token del bot
     token = os.getenv("BOT_TOKEN")
     if not token:
-        logging.critical("BOT_TOKEN non trovato!")
+        logging.critical("BOT_TOKEN non trovato! Assicurati di aver impostato la variabile d'ambiente BOT_TOKEN.")
         return
         
     # Inizializza il database
@@ -32,30 +32,21 @@ def main() -> None:
     # Crea l'applicazione del bot
     application = ApplicationBuilder().token(token).build()
 
-    # Aggiunge gli handler per i comandi (nessuna modifica qui)
+    # Aggiunge gli handler per i comandi
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("test", test_channel))
     application.add_handler(CommandHandler("forza_invio", forza_invio))
 
-    # --- Configurazione Webhook per Render ---
-    # Render imposta la porta dinamicamente tramite la variabile PORT
-    port = int(os.getenv("PORT", 8443))
-    # Render fornisce l'URL pubblico del servizio tramite RENDER_EXTERNAL_URL
-    webhook_url = os.getenv("RENDER_EXTERNAL_URL")
+    # --- Configurazione per Replit (modalità polling) ---
+    logging.info("Avvio del bot in modalità Polling")
+    logging.info("Bot avviato con successo! Premi Ctrl+C per fermare.")
     
-    if webhook_url:
-        # Avvia il bot in modalità webhook
-        logging.info(f"Avvio in modalità Webhook su porta {port}")
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path=token,  # Usa il token come parte "segreta" dell'URL
-            webhook_url=f"{webhook_url}/{token}"
-        )
-    else:
-        # Se non siamo su Render, avvia in modalità polling per test locali
-        logging.info("Avvio in modalità Polling per sviluppo locale")
-        application.run_polling()
+    try:
+        application.run_polling(allowed_updates=['message', 'callback_query'])
+    except KeyboardInterrupt:
+        logging.info("Bot fermato dall'utente.")
+    except Exception as e:
+        logging.error(f"Errore durante l'esecuzione del bot: {e}", exc_info=True)
 
 
 if __name__ == '__main__':
