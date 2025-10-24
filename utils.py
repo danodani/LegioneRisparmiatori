@@ -3,70 +3,144 @@ import re
 import requests
 from bs4 import BeautifulSoup
 import logging
+import time
+import random
 
 # Configurazione del logger per utils.py
 logger = logging.getLogger(__name__)
 
-# TAG DI AFFILIAZIONE - VIENE CARICATO DALLE VARIABILI D'AMBIENTE DI REPLIT
-# Se non è impostato in Replit Secrets, usa un valore di fallback
-AFFILIATE_TAG = os.environ.get("AMAZON_AFFILIATE_TAG", "iltuotag-21") 
+# TAG DI AFFILIAZIONE
+AFFILIATE_TAG = os.environ.get("AMAZON_AFFILIATE_TAG", "") 
 
-# Headers per camuffarsi da browser (ESSENZIALE per lo scraping)
+# --- ROTAZIONE DELLO USER-AGENT ---
+
+# Lista di User-Agent comuni per simulare browser diversi
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:128.0) Gecko/20100101 Firefox/128.0',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+]
+
+# Headers di base (SENZA User-Agent, verrà aggiunto casualmente per ogni richiesta)
 HEADERS = {
-    # Usa uno User-Agent aggiornato per sembrare un browser reale
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
     'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
     'Accept-Encoding': 'gzip, deflate, br',
     'Connection': 'keep-alive',
 }
+# --- FINE ROTAZIONE DELLO USER-AGENT ---
 
+# FUNZIONE get_product_asin (CORRETTA E ROBUSTA)
 def get_product_asin(url: str) -> str or None:
-    """Estrae l'ASIN (identificativo del prodotto Amazon) dall'URL."""
+    """Estrae l'ASIN (identificativo del prodotto Amazon) dall'URL, gestendo i reindirizzamenti."""
 
-    # Tenta di estrarre l'ASIN da URL standard (dp/ ASIN)
-    match = re.search(r"[/dp/|/gp/product/]([A-Z0-9]{10})", url)
+    final_url = url
+
+    # GESTIONE DEI LINK CORTI (amzn.to)
+    if 'amzn.to' in url:
+        try:
+            # ⭐️ Aggiungiamo un User-Agent casuale per questa richiesta di espansione
+            temp_headers = HEADERS.copy()
+            temp_headers['User-Agent'] = random.choice(USER_AGENTS)
+
+            # Usiamo requests.get() per garantire che i reindirizzamenti vengano seguiti.
+            response = requests.get(url, headers=temp_headers, allow_redirects=True, timeout=10)
+
+            # Controlla se ci sono stati reindirizzamenti (risposta finale)
+            if response.history or response.status_code == 200:
+                final_url = response.url
+
+            logger.info(f"URL corto {url} espanso a: {final_url}")
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Errore durante l'espansione dell'URL corto {url}: {e}")
+            return None
+
+    # ESTRAZIONE DALL'URL FINALE (MANTENUTA INVARIATA)
+    match = re.search(r"[/dp/|/gp/product/]([A-Z0-9]{10})", final_url)
     if match:
         return match.group(1)
 
-    # Gestisce i link brevi amzn.to dopo l'espansione, cercando un ID a 10 caratteri
-    # (Non gestisce l'espansione diretta, ma cerca l'ASIN se l'URL è già espanso)
-    match = re.search(r"([A-Z0-9]{10})(?:/ref|/|$)", url)
-    if match and not match.group(1).startswith("ref"):
-        return match.group(1)
+    match_asin_only = re.search(r"([A-Z0-9]{10})(?:[/?&]|$)", final_url)
+
+    if match_asin_only and not match_asin_only.group(1).startswith("ref"):
+        return match_asin_only.group(1)
 
     return None
+# FINE get_product_asin
 
 def get_amazon_product_details(amazon_url: str) -> dict or None:
     """
-    Estrae i dettagli del prodotto tramite scraping web.
-    NOTA: Questa logica è sensibile ai cambiamenti della struttura HTML di Amazon.
+    Estrae Titolo e Immagine del prodotto con logica di ritentativo e rotazione dello User-Agent.
     """
     asin = get_product_asin(amazon_url)
     if not asin:
         logger.warning(f"Impossibile estrarre l'ASIN dall'URL: {amazon_url}")
         return None
 
-    # Costruisce l'URL "pulito" (è essenziale per l'affidabilità)
+    # L'URL di base (pulito) ci serve per l'affiliate link
     clean_url = f"https://www.amazon.it/dp/{asin}" 
 
-    # Preparazione dei dati di default (in caso di fallimento)
+    # Manteniamo il link originale inviato, ci serve per la logica dei bottoni
+    original_url = amazon_url
+
+    affiliate_suffix = f"?tag={AFFILIATE_TAG}" if AFFILIATE_TAG else ""
+
     product_data = {
         "title": None,
-        "current_price": 0.0,
-        "previous_price": None,
         "image_url": "",
-        "product_link": f"https://www.amazon.it/dp/{asin}?tag={AFFILIATE_TAG}"
+        "asin": asin,
+        "clean_product_link": f"{clean_url}{affiliate_suffix}",
+        "original_link": original_url, # Nuovo campo per tracciare il link originale
     }
 
+    response = None
+
+    # --- LOGICA DI TENTATIVO (RETRY LOGIC) ---
+    for attempt in range(1, 10): # Tenta 9 volte
+        try:
+            # ⭐️ Aggiungiamo un User-Agent casuale per questa richiesta di scraping
+            current_headers = HEADERS.copy()
+            current_headers['User-Agent'] = random.choice(USER_AGENTS)
+
+            # Eseguiamo la richiesta
+            response = requests.get(clean_url, headers=current_headers, timeout=15)
+
+            logger.info(f"Stato della Risposta HTTP per {asin} (Tentativo {attempt}): {response.status_code}")
+
+            # Se la risposta è 200, è andata a buon fine. Esci dal ciclo.
+            if response.status_code == 200:
+                break
+
+            # Se la risposta è un errore comune di blocco o server (500, 503, 403, 404), ritenta
+            elif response.status_code in [500, 503, 403, 404]:
+                logger.warning(f"Errore {response.status_code}. Riprovo tra {attempt * 2} secondi...")
+                time.sleep(attempt * 2 + random.uniform(0.5, 1.5)) # Ritardo progressivo con jitter
+
+            # Per qualsiasi altro errore che non gestiamo (es. 400), solleva subito l'errore
+            else:
+                response.raise_for_status() 
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Errore di richiesta al Tentativo {attempt}: {e}")
+            if attempt < 3:
+                time.sleep(attempt * 2 + random.uniform(0.5, 1.5))
+                continue # Continua al prossimo tentativo
+            else:
+                logger.error(f"Scraping fallito dopo {attempt} tentativi.")
+                return None
+
+    # --- FINE LOGICA DI TENTATIVO ---
+
+    # Se dopo i tentativi non abbiamo una risposta 200 (o response è None), fallisci
+    if response is None or response.status_code != 200:
+        logger.error(f"Scraping fallito con stato finale: {response.status_code if response else 'N/A'}")
+        return None
+
+    # Ora che abbiamo una risposta 200, procediamo con lo scraping
     try:
-        # Eseguiamo la richiesta
-        response = requests.get(clean_url, headers=HEADERS, timeout=15)
-
-        logger.info(f"Stato della Risposta HTTP per {asin}: {response.status_code}")
-
-        # Se Amazon blocca o c'è un errore, solleva un'eccezione
-        response.raise_for_status() 
-
         soup = BeautifulSoup(response.content, 'html.parser')
 
         # --- 1. Estrazione Titolo ---
@@ -74,66 +148,24 @@ def get_amazon_product_details(amazon_url: str) -> dict or None:
         if title_element:
             product_data["title"] = title_element.get_text(strip=True)
         else:
-            logger.warning("Errore: ID 'productTitle' non trovato o struttura cambiata.")
+            logger.warning("Errore: Titolo non trovato.")
+            return None # Falliamo se non troviamo il titolo
 
-        # --- 2. Estrazione Prezzo Attuale ---
-        # Si cerca l'elemento che contiene il prezzo completo (più affidabile)
-        price_whole_element = soup.find('span', class_='a-price-whole') 
-        price_fraction_element = soup.find('span', class_='a-price-fraction')
-
-        if price_whole_element and price_fraction_element:
-            # Combina intero e decimale
-            price_text = price_whole_element.get_text(strip=True).replace('.', '') + '.' + price_fraction_element.get_text(strip=True)
-            try:
-                # Rimuove virgole o simboli (tranne il punto decimale)
-                product_data["current_price"] = float(price_text)
-            except ValueError:
-                logger.warning(f"Errore nella conversione del prezzo attuale: {price_text}")
-
-        # --- 3. Estrazione Prezzo Precedente (e Sconto) ---
-        # Cerca il prezzo barrato (Old Price)
-        old_price_element = soup.find('span', class_='a-text-strike')
-        if old_price_element:
-            price_text = old_price_element.get_text(strip=True).replace('€', '').replace(',', '.')
-            # Filtra solo i numeri e il punto decimale
-            cleaned_price = re.sub(r'[^\d.]', '', price_text)
-            try:
-                product_data["previous_price"] = float(cleaned_price)
-            except ValueError:
-                logger.warning(f"Errore nella conversione del prezzo precedente: {cleaned_price}")
-
-        # --- 4. Estrazione Foto (Miniatura principale) ---
-        # La foto è spesso nel tag img principale con id 'landingImage' o simile.
+        # --- 2. Estrazione Foto (Miniatura principale) ---
         image_element = soup.find('img', {'id': 'landingImage'}) or soup.find('img', {'id': 'imgBliss'})
 
         if image_element:
             image_url_data = image_element.get('data-a-dynamic-image')
 
-            # Se esiste l'attributo dinamico (che è un JSON string di URL e dimensioni)
             if image_url_data:
-                # Cerca il primo URL valido all'interno della stringa JSON
                 match = re.search(r'\"(https?://[^\"]+)\"', image_url_data)
                 if match:
                     product_data["image_url"] = match.group(1)
             else:
-                # Fallback sull'attributo src se non c'è il dato dinamico
                 product_data["image_url"] = image_element.get('src')
-
-        # Se il titolo non è stato trovato (il fallimento primario)
-        if not product_data["title"]:
-            logger.error("Scraping Fallito: Titolo non trovato. Controlla se la pagina ha un CAPTCHA.")
-            # Stampa i primi 1000 caratteri del codice HTML per l'analisi
-            logger.debug(str(response.content[:1000]))
-            return None 
 
         return product_data
 
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"Errore HTTP ({response.status_code}) - Probabile blocco di Amazon: {e}")
-        return None
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Errore di richiesta (timeout o connessione) durante lo scraping: {e}")
-        return None
     except Exception as e:
-        logger.error(f"Errore generico nello scraping del prodotto {asin}: {e}")
+        logger.error(f"Errore generico nell'analisi HTML del prodotto {asin}: {e}")
         return None

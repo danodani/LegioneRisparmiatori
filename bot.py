@@ -1,52 +1,56 @@
 import os
 import logging
-from telegram.ext import Application, ApplicationBuilder
+from telegram.ext import Application, CommandHandler
 from telegram import Update
-from handlers import start_handler, help_handler, amazon_link_message_handler
-    # Assicurati di importare tutti gli handler, inclusi quelli Amazon!
 
-    # Configurazione logging
+# Importa le funzioni e il conversation handler dal tuo file handlers.py
+from handlers import start, help_command, conv_handler, cancel
+
+# Configurazione del logging
 logging.basicConfig(
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-    )
-    # Imposta il livello di logging più alto per la libreria per non inondare il log
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 logging.getLogger("httpx").setLevel(logging.WARNING)
-
 logger = logging.getLogger(__name__)
 
-    # --- Replit Secrets Loading ---
-    # Replit carica automaticamente le variabili d'ambiente (Secrets)
-
+# Carica il token del bot dai Secrets
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
-    # Verifica critica del Token
+# Verifica critica che il token esista
 if not TELEGRAM_BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN non trovato. Assicurati di averlo impostato nei Secrets di Replit.")
-        exit(1)
+    logger.error("ERRORE: TELEGRAM_BOT_TOKEN non trovato nei Secrets!")
+    exit(1)
+
+# Verifica che gli ID admin e l'ID del canale siano stati impostati (opzionale ma consigliato)
+if not os.environ.get("ADMIN_IDS"):
+    logger.warning("ATTENZIONE: La variabile ADMIN_IDS non è impostata. Il bot risponderà a tutti.")
+if not os.environ.get("CHANNEL_ID"):
+    logger.warning("ATTENZIONE: La variabile CHANNEL_ID non è impostata. L'invio al canale fallirà.")
 
 
 def main():
-        """Avvia il bot e registra gli handlers."""
+    """Avvia il bot e registra gli handler corretti."""
 
-        # Usiamo ApplicationBuilder per creare l'applicazione del bot
-        application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    # Crea l'applicazione del bot
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-        # --- Registrazione degli Handlers ---
+    # --- Registrazione degli Handlers ---
 
-        # Comandi di base
-        application.add_handler(start_handler)
-        application.add_handler(help_handler)
+    # 1. Aggiungi i comandi di base (/start, /help, /cancel)
+    #    Ogni comando viene collegato alla sua funzione corrispondente.
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("cancel", cancel))
 
-        # Nuovo Handler per i link Amazon
-        application.add_handler(amazon_link_message_handler)
+    # 2. Aggiungi il ConversationHandler
+    #    Questo singolo handler gestisce tutto il flusso di creazione dell'offerta:
+    #    ricezione del link, richiesta dei prezzi e conferma.
+    application.add_handler(conv_handler)
 
-        # Se hai altri handler (es. scheduler, database, ecc.), aggiungili qui
-        # application.add_handler(altro_handler)
-
-        # --- Avvio del Bot (Polling) ---
-        logger.info("Bot avviato! In attesa di messaggi...")
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # --- Avvio del Bot ---
+    logger.info("Bot avviato! In attesa di comandi dagli amministratori...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == '__main__':
-        main()
+    main()
