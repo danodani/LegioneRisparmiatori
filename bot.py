@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+from flask import Flask
 from telegram.ext import Application, CommandHandler
 from telegram import Update
 
@@ -13,44 +15,46 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# Carica il token del bot dai Secrets
+# --- CONFIGURAZIONE FLASK PER RENDER ---
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return "Bot is running!", 200
+
+def run_flask():
+    # Render assegna la porta nella variabile d'ambiente PORT
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+# ---------------------------------------
+
+# Carica il token del bot
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
-# Verifica critica che il token esista
 if not TELEGRAM_BOT_TOKEN:
-    logger.error("ERRORE: TELEGRAM_BOT_TOKEN non trovato nei Secrets!")
+    logger.error("ERRORE: TELEGRAM_BOT_TOKEN non trovato nelle variabili d'ambiente!")
     exit(1)
 
-# Verifica che gli ID admin e l'ID del canale siano stati impostati (opzionale ma consigliato)
-if not os.environ.get("ADMIN_IDS"):
-    logger.warning("ATTENZIONE: La variabile ADMIN_IDS non è impostata. Il bot risponderà a tutti.")
-if not os.environ.get("CHANNEL_ID"):
-    logger.warning("ATTENZIONE: La variabile CHANNEL_ID non è impostata. L'invio al canale fallirà.")
-
-
 def main():
-    """Avvia il bot e registra gli handler corretti."""
+    """Avvia il bot e registra gli handler."""
+    
+    # 1. Avvia il server Flask in un thread separato (per Render)
+    threading.Thread(target=run_flask, daemon=True).start()
 
-    # Crea l'applicazione del bot
+    # 2. Crea l'applicazione del bot
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     # --- Registrazione degli Handlers ---
-
-    # 1. Aggiungi i comandi di base (/start, /help, /cancel)
-    #    Ogni comando viene collegato alla sua funzione corrispondente.
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("cancel", cancel))
-
-    # 2. Aggiungi il ConversationHandler
-    #    Questo singolo handler gestisce tutto il flusso di creazione dell'offerta:
-    #    ricezione del link, richiesta dei prezzi e conferma.
     application.add_handler(conv_handler)
 
     # --- Avvio del Bot ---
-    logger.info("Bot avviato! In attesa di comandi dagli amministratori...")
+    logger.info("Bot avviato su Render! In attesa di comandi...")
+    
+    # Usa polling (va bene anche su Render se usi il trucco di Flask)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
-
 
 if __name__ == '__main__':
     main()
