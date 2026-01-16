@@ -2,41 +2,35 @@ import os
 import psycopg2
 import logging
 
-logger = logging.getLogger(__name__)
-
 def get_db_connection():
-    """Stabilisce la connessione al database Postgres (Neon)."""
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        logger.error("DATABASE_URL non impostata!")
-        return None
-    try:
-        conn = psycopg2.connect(database_url)
-        return conn
-    except Exception as e:
-        logger.error(f"Errore connessione DB: {e}")
-        return None
+    return psycopg2.connect(os.environ.get("DATABASE_URL"))
 
 def init_db():
-    """
-    Inizializza il database e crea le tabelle se non esistono.
-    """
     conn = get_db_connection()
-    if not conn:
-        return
-
-    cursor = conn.cursor()
-    
-    # Esempio tabella Canali (per quando implementerai il multi-canale)
-    cursor.execute('''
+    cur = conn.cursor()
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS channels (
             channel_id BIGINT PRIMARY KEY,
-            channel_name TEXT,
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            channel_name TEXT
         )
     ''')
-    
     conn.commit()
-    cursor.close()
+    cur.close()
     conn.close()
-    logger.info("Database Postgres inizializzato.")
+
+def get_channels():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT channel_id, channel_name FROM channels")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+def add_channel(cid, name):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO channels (channel_id, channel_name) VALUES (%s, %s) ON CONFLICT DO NOTHING", (cid, name))
+    conn.commit()
+    cur.close()
+    conn.close()
