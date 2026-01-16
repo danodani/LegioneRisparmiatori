@@ -34,37 +34,31 @@ HEADERS = {
 
 # FUNZIONE get_product_asin (CORRETTA E ROBUSTA)
 def get_product_asin(url: str) -> str or None:
-    """Estrae l'ASIN (identificativo del prodotto Amazon) dall'URL, gestendo i reindirizzamenti."""
-
+    """Estrae l'ASIN gestendo i reindirizzamenti per amzn.to, amzn.eu, ecc."""
     final_url = url
 
-    # GESTIONE DEI LINK CORTI (amzn.to)
-    if 'amzn.to' in url:
+    # GESTIONE DEI LINK CORTI (ora include amzn.eu e altri)
+    if 'amzn.' in url:
         try:
-            # ⭐️ Aggiungiamo un User-Agent casuale per questa richiesta di espansione
             temp_headers = HEADERS.copy()
             temp_headers['User-Agent'] = random.choice(USER_AGENTS)
 
-            # Usiamo requests.get() per garantire che i reindirizzamenti vengano seguiti.
+            # allow_redirects=True è fondamentale per seguire il link fino alla pagina prodotto
             response = requests.get(url, headers=temp_headers, allow_redirects=True, timeout=10)
 
-            # Controlla se ci sono stati reindirizzamenti (risposta finale)
-            if response.history or response.status_code == 200:
+            if response.status_code == 200:
                 final_url = response.url
-
-            logger.info(f"URL corto {url} espanso a: {final_url}")
-
+                logger.info(f"URL corto {url} espanso a: {final_url}")
         except requests.exceptions.RequestException as e:
             logger.error(f"Errore durante l'espansione dell'URL corto {url}: {e}")
             return None
 
-    # ESTRAZIONE DALL'URL FINALE (MANTENUTA INVARIATA)
-    match = re.search(r"[/dp/|/gp/product/]([A-Z0-9]{10})", final_url)
+    # Estrazione ASIN dall'URL finale
+    match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", final_url)
     if match:
         return match.group(1)
 
     match_asin_only = re.search(r"([A-Z0-9]{10})(?:[/?&]|$)", final_url)
-
     if match_asin_only and not match_asin_only.group(1).startswith("ref"):
         return match_asin_only.group(1)
 
