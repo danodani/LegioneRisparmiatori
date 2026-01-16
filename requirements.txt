@@ -10,6 +10,7 @@ APScheduler
 beautifulsoup4
 feedparser
 python-dotenv
-python-telegram-bot[webhooks]==21.0
-requests
+python-telegram-bot
+psycopg2-binary
+gunicorn
 telegramutils.py
